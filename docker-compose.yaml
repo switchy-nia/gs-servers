@@ -1,0 +1,160 @@
+version: "3"
+services:
+  # This is the Gagspeak main service instance
+  gagspeak:
+    build:
+      context: .
+      target: server
+    # Identifies the container's name on the host network
+    container_name: gs-service
+    # While the actual host should be behind some kind of reverse proxy,
+    # For testing we can expose the port directly on port 80 on the host (your PC)
+    # Then this with send all traffic to port 8080 which Gagspeak actually listens on.
+    expose:
+      - 8080
+    # Docker volumes are where the data gets mounted in the image.
+    # This docker volume contains all the persistent data used by Gagspeak
+    volumes:
+      - ./appsettings.json:/app/appsettings.json
+      - ./appsettings.Development.json:/app/appsettings.Development.json
+      - gs-data:/data
+    environment:
+      - ./.env
+    # Gagspeak itself depends on both the postgres and the redis instances being up
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # For simplicity we create a single docker network to link the services together
+    networks:
+      - gagspeak-network
+
+  gagspeak-auth:
+    build:
+      context: .
+      target: auth
+    # Identifies the container's name on the host network
+    container_name: gs-auth
+    # While the actual host should be behind some kind of reverse proxy,
+    # For testing we can expose the port directly on port 80 on the host (your PC)
+    # Then this with send all traffic to port 8080 which Gagspeak actually listens on.
+    expose:
+      - 8080
+    # ports:
+    #   - 80:8080
+    # Docker volumes are where the data gets mounted in the image.
+    # This docker volume contains all the persistent data used by Gagspeak
+    volumes:
+      - ./appsettings.json:/app/appsettings.json
+      - ./appsettings.Development.json:/app/appsettings.Development.json
+      - gs-data:/data
+    environment:
+      - ./.env
+    # Gagspeak itself depends on both the postgres and the redis instances being up
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # For simplicity we create a single docker network to link the services together
+    networks:
+      - gagspeak-network
+
+  gagspeak-discord:
+    build:
+      context: .
+      target: discord
+    # Identifies the container's name on the host network
+    container_name: gs-discord
+    # While the actual host should be behind some kind of reverse proxy,
+    # For testing we can expose the port directly on port 80 on the host (your PC)
+    # Then this with send all traffic to port 8080 which Gagspeak actually listens on.
+    expose:
+      - 8080
+    # Docker volumes are where the data gets mounted in the image.
+    # This docker volume contains all the persistent data used by Gagspeak
+    volumes:
+      - ./appsettings.json:/app/appsettings.json
+      - ./appsettings.Development.json:/app/appsettings.Development.json
+      - gs-data:/data
+    environment:
+      - ./.env
+    # Gagspeak itself depends on both the postgres and the redis instances being up
+    depends_on:
+      gagspeak:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # For simplicity we create a single docker network to link the services together
+    networks:
+      - gagspeak-network
+
+  # Caddy webserver
+  caddy:
+    image: caddy
+    container_name: gs-endpoint
+    expose:
+      - 2019
+      - 5000
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - caddy-config:/config
+      - caddy-data:/data
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - gagspeak-network
+      #
+  # Postgres DB image
+  postgres:
+    image: postgres:bookworm
+    restart: always
+    container_name: postgres
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test:
+        [CMD-SHELL, "sh -c 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - 5432:5432
+    volumes:
+      - pg-data:/var/lib/postgresql/18/data
+    networks:
+      - gagspeak-network
+
+  redis:
+    image: redis:8.4-alpine
+    container_name: redis
+    volumes:
+      - redis-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    expose:
+      - 6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - gagspeak-network
+volumes:
+  caddy-config:
+  caddy-data:
+  pg-data:
+  redis-data:
+  gs-data:
+
+networks:
+  gagspeak-network:

@@ -1,0 +1,26 @@
+{
+    auto_https off
+    debug
+    servers {
+        trace
+    }
+    log default {
+        output stdout
+        format json
+        include http.log.access admin.api
+    }
+    metrics {
+        per_host
+    }
+}
+
+http://localhost { 
+    handle /auth/* {
+        reverse_proxy gs-auth:8080
+    }
+    handle {
+        reverse_proxy gs-service:8080
+    }
+}
+
+
